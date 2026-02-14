@@ -22,22 +22,60 @@ class HFClient:
             "Content-Type": "application/json",
         }
 
-    def _model_url(self, model_name: str) -> str:
-        return f"{self.api_base}/{model_name}"
+    def _model_urls(self, model_name: str) -> list[str]:
+        primary = f"{self.api_base}/{model_name}"
+        urls = [primary]
+
+        if self.api_base == "https://api-inference.huggingface.co/models":
+            urls.append(f"https://router.huggingface.co/hf-inference/models/{model_name}")
+
+        deduped_urls: list[str] = []
+        for url in urls:
+            if url not in deduped_urls:
+                deduped_urls.append(url)
+        return deduped_urls
+
+    def _post_model(self, model_name: str, payload: dict[str, Any], timeout: int) -> requests.Response:
+        attempted_urls = self._model_urls(model_name)
+        last_status: int | None = None
+        last_text = ""
+
+        for url in attempted_urls:
+            response = requests.post(
+                url,
+                headers=self._headers(),
+                json=payload,
+                timeout=timeout,
+            )
+            if response.ok:
+                return response
+
+            last_status = response.status_code
+            last_text = response.text[:500]
+
+            if response.status_code in (404, 410):
+                continue
+
+            break
+
+        raise RuntimeError(
+            f"Hugging Face API request failed for model '{model_name}'. "
+            f"Tried URLs: {attempted_urls}. "
+            f"Last status: {last_status}. "
+            f"Last response: {last_text}"
+        )
 
     def embed_texts(self, texts: list[str]) -> list[list[float]]:
         vectors: list[list[float]] = []
         for text in texts:
-            response = requests.post(
-                self._model_url(self.embedding_model),
-                headers=self._headers(),
-                json={
+            response = self._post_model(
+                self.embedding_model,
+                {
                     "inputs": text,
                     "options": {"wait_for_model": True},
                 },
                 timeout=120,
             )
-            response.raise_for_status()
             payload = response.json()
             vectors.append(self._normalize_embedding_payload(payload))
         return vectors
@@ -60,10 +98,9 @@ class HFClient:
             f"Input:\n{json.dumps(user_payload, ensure_ascii=False)}"
         )
 
-        response = requests.post(
-            self._model_url(self.chat_model),
-            headers=self._headers(),
-            json={
+        response = self._post_model(
+            self.chat_model,
+            {
                 "inputs": prompt,
                 "parameters": {
                     "max_new_tokens": max_new_tokens,
@@ -74,7 +111,6 @@ class HFClient:
             },
             timeout=180,
         )
-        response.raise_for_status()
         payload = response.json()
         text = self._extract_generated_text(payload)
         return self._extract_json_object(text)

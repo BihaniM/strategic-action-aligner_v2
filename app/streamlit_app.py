@@ -138,10 +138,11 @@ if run_clicked:
 
     try:
         check_huggingface_connectivity()
-    except Exception:
+    except Exception as exc:
         st.error(
-            "Cannot connect to Hugging Face Inference API. Configure Streamlit secrets: HF_TOKEN, HF_EMBEDDING_MODEL, and HF_CHAT_MODEL."
+            "Cannot connect to Hugging Face Inference API. Check token/model access and API base configuration."
         )
+        st.code(str(exc))
         st.stop()
 
     strategic_df = pd.read_csv(strategic_file)
