@@ -12,6 +12,42 @@ def _hf_json(system_prompt: str, user_payload: dict[str, Any]) -> dict[str, Any]
     return client.generate_json(system_prompt=system_prompt, user_payload=user_payload)
 
 
+def _fallback_agentic_reasoning(strategy: str, error_message: str) -> dict[str, Any]:
+    return {
+        "diagnosis": {
+            "root_causes": ["Automated reasoning service unavailable for this model endpoint."],
+            "capability_gaps": ["Detailed LLM-based diagnosis could not be generated."],
+            "risk_level": "Medium",
+            "diagnostic_summary": (
+                f"Fallback diagnosis used for strategy '{strategy[:120]}'."
+            ),
+        },
+        "proposal": {
+            "recommended_actions": [
+                "Clarify action ownership and accountable teams.",
+                "Add milestone-based execution checkpoints.",
+            ],
+            "recommended_kpis": [
+                "Define baseline and target for each strategy KPI.",
+                "Track monthly progress and variance to target.",
+            ],
+            "timeline_scope_adjustments": [
+                "Break broad actions into phased deliverables.",
+                "Prioritize high-impact actions mapped directly to strategy outcomes.",
+            ],
+            "expected_alignment_delta": 0.0,
+            "proposal_summary": "Fallback proposal generated due to unavailable LLM endpoint.",
+        },
+        "critique": {
+            "approved": False,
+            "issues": ["LLM endpoint unavailable; using deterministic fallback recommendations."],
+            "confidence": 0.2,
+        },
+        "generation_mode": "fallback",
+        "generation_error": error_message,
+    }
+
+
 def _agentic_reasoning(strategy: str, matched_actions: str, similarity_score: float) -> dict[str, Any]:
     system_prompt = (
         "You are an agentic strategic planner using diagnose-propose-critique reasoning. "
@@ -61,7 +97,10 @@ def run_agentic_reasoning_layer(
         similarity_score = float(row.similarity_score)
         strategy_chunk_id = str(getattr(row, "strategy_chunk_id", ""))
 
-        reasoning_result = _agentic_reasoning(strategy, matched_actions, similarity_score)
+        try:
+            reasoning_result = _agentic_reasoning(strategy, matched_actions, similarity_score)
+        except Exception as exc:
+            reasoning_result = _fallback_agentic_reasoning(strategy=strategy, error_message=str(exc))
         diagnosis = reasoning_result.get("diagnosis", {})
         proposal = reasoning_result.get("proposal", {})
         critique = reasoning_result.get("critique", {})

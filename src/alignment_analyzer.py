@@ -32,10 +32,16 @@ class AlignmentAnalyzer:
             "goal_text": goal_text,
             "similarity_score": similarity_score,
         }
-        parsed = self.hf_client.generate_json(system_prompt=system_prompt, user_payload=payload)
-        return parsed.get("label", "Partially Aligned"), parsed.get(
-            "rationale", "No rationale provided."
-        )
+        try:
+            parsed = self.hf_client.generate_json(system_prompt=system_prompt, user_payload=payload)
+            return parsed.get("label", "Partially Aligned"), parsed.get(
+                "rationale", "No rationale provided."
+            )
+        except Exception as exc:
+            return (
+                "Partially Aligned",
+                f"Fallback rationale used because LLM endpoint is unavailable: {str(exc)[:220]}",
+            )
 
     def analyze(self, action_df: pd.DataFrame, top_k: int = 1) -> pd.DataFrame:
         action_ids = action_df["action_id"].astype(str).tolist()
