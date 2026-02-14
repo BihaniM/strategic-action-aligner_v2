@@ -5,6 +5,7 @@ from typing import Any
 
 import numpy as np
 import requests
+from sklearn.feature_extraction.text import HashingVectorizer
 
 from src.config import HF_API_BASE, HF_CHAT_MODEL, HF_EMBEDDING_MODEL, HF_TOKEN
 
@@ -15,6 +16,7 @@ class HFClient:
         self.token = HF_TOKEN
         self.embedding_model = HF_EMBEDDING_MODEL
         self.chat_model = HF_CHAT_MODEL
+        self.last_embedding_backend = "unknown"
 
     def _headers(self) -> dict[str, str]:
         return {
@@ -109,32 +111,48 @@ class HFClient:
 
     def embed_texts(self, texts: list[str]) -> list[list[float]]:
         vectors: list[list[float]] = []
-        for text in texts:
-            payload = {
-                "inputs": text,
-                "options": {"wait_for_model": True},
-            }
+        try:
+            for text in texts:
+                payload = {
+                    "inputs": text,
+                    "options": {"wait_for_model": True},
+                }
 
-            try:
-                response = self._post_model(
-                    self.embedding_model,
-                    payload,
-                    timeout=120,
-                )
-            except RuntimeError as exc:
-                error_text = str(exc)
-                if "SentenceSimilarityPipeline.__call__() missing 1 required positional argument: 'sentences'" not in error_text:
-                    raise
+                try:
+                    response = self._post_model(
+                        self.embedding_model,
+                        payload,
+                        timeout=120,
+                    )
+                except RuntimeError as exc:
+                    error_text = str(exc)
+                    if "SentenceSimilarityPipeline.__call__() missing 1 required positional argument: 'sentences'" not in error_text:
+                        raise
 
-                response = self._post_feature_extraction(
-                    self.embedding_model,
-                    payload,
-                    timeout=120,
-                )
+                    response = self._post_feature_extraction(
+                        self.embedding_model,
+                        payload,
+                        timeout=120,
+                    )
 
-            payload = response.json()
-            vectors.append(self._normalize_embedding_payload(payload))
-        return vectors
+                payload = response.json()
+                vectors.append(self._normalize_embedding_payload(payload))
+
+            self.last_embedding_backend = "huggingface"
+            return vectors
+        except Exception:
+            self.last_embedding_backend = "local"
+            return self._local_embed_texts(texts)
+
+    def _local_embed_texts(self, texts: list[str]) -> list[list[float]]:
+        vectorizer = HashingVectorizer(
+            n_features=384,
+            alternate_sign=False,
+            norm="l2",
+            lowercase=True,
+        )
+        matrix = vectorizer.transform(texts)
+        return matrix.toarray().astype(float).tolist()
 
     def _normalize_embedding_payload(self, payload: Any) -> list[float]:
         if isinstance(payload, list) and payload and isinstance(payload[0], (int, float)):

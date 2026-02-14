@@ -34,11 +34,12 @@ from src.ingestion_pipeline import embed_and_store_chunks
 from src.hf_client import HFClient
 
 
-def check_huggingface_connectivity() -> None:
+def check_huggingface_connectivity() -> str:
     if not os.getenv("HF_TOKEN"):
         raise ValueError("Missing HF_TOKEN secret or environment variable.")
     client = HFClient()
     client.embed_texts(["health check"])
+    return client.last_embedding_backend
 
 
 st.set_page_config(page_title="Plan Alignment Analyzer", layout="wide")
@@ -137,13 +138,18 @@ if run_clicked:
         st.stop()
 
     try:
-        check_huggingface_connectivity()
+        embedding_backend = check_huggingface_connectivity()
     except Exception as exc:
         st.error(
             "Cannot connect to Hugging Face Inference API. Check token/model access and API base configuration."
         )
         st.code(str(exc))
         st.stop()
+
+    if embedding_backend == "local":
+        st.warning(
+            "Hugging Face embedding endpoint is unavailable for the configured model. Using local fallback embeddings for alignment scoring."
+        )
 
     strategic_df = pd.read_csv(strategic_file)
     action_df = pd.read_csv(action_file)
