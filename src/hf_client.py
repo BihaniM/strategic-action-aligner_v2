@@ -35,6 +35,18 @@ class HFClient:
                 deduped_urls.append(url)
         return deduped_urls
 
+    def _feature_extraction_urls(self, model_name: str) -> list[str]:
+        urls = [f"https://api-inference.huggingface.co/pipeline/feature-extraction/{model_name}"]
+
+        if self.api_base == "https://api-inference.huggingface.co/models":
+            urls.append(f"https://router.huggingface.co/hf-inference/pipeline/feature-extraction/{model_name}")
+
+        deduped_urls: list[str] = []
+        for url in urls:
+            if url not in deduped_urls:
+                deduped_urls.append(url)
+        return deduped_urls
+
     def _post_model(self, model_name: str, payload: dict[str, Any], timeout: int) -> requests.Response:
         attempted_urls = self._model_urls(model_name)
         last_status: int | None = None
@@ -65,17 +77,61 @@ class HFClient:
             f"Last response: {last_text}"
         )
 
+    def _post_feature_extraction(self, model_name: str, payload: dict[str, Any], timeout: int) -> requests.Response:
+        attempted_urls = self._feature_extraction_urls(model_name)
+        last_status: int | None = None
+        last_text = ""
+
+        for url in attempted_urls:
+            response = requests.post(
+                url,
+                headers=self._headers(),
+                json=payload,
+                timeout=timeout,
+            )
+            if response.ok:
+                return response
+
+            last_status = response.status_code
+            last_text = response.text[:500]
+
+            if response.status_code in (404, 410):
+                continue
+
+            break
+
+        raise RuntimeError(
+            f"Hugging Face feature-extraction request failed for model '{model_name}'. "
+            f"Tried URLs: {attempted_urls}. "
+            f"Last status: {last_status}. "
+            f"Last response: {last_text}"
+        )
+
     def embed_texts(self, texts: list[str]) -> list[list[float]]:
         vectors: list[list[float]] = []
         for text in texts:
-            response = self._post_model(
-                self.embedding_model,
-                {
-                    "inputs": text,
-                    "options": {"wait_for_model": True},
-                },
-                timeout=120,
-            )
+            payload = {
+                "inputs": text,
+                "options": {"wait_for_model": True},
+            }
+
+            try:
+                response = self._post_model(
+                    self.embedding_model,
+                    payload,
+                    timeout=120,
+                )
+            except RuntimeError as exc:
+                error_text = str(exc)
+                if "SentenceSimilarityPipeline.__call__() missing 1 required positional argument: 'sentences'" not in error_text:
+                    raise
+
+                response = self._post_feature_extraction(
+                    self.embedding_model,
+                    payload,
+                    timeout=120,
+                )
+
             payload = response.json()
             vectors.append(self._normalize_embedding_payload(payload))
         return vectors
