@@ -39,13 +39,35 @@ def suggest_improvements_for_pair(
     }
 
     client = HFClient()
-    parsed = client.generate_json(system_prompt=prompt, user_payload=payload)
-    parsed.setdefault("missing_actions", [])
-    parsed.setdefault("improved_kpis", [])
-    parsed.setdefault("timeline_or_scope_changes", [])
-    parsed.setdefault("revised_action_plan_summary", "")
-    parsed["generation_mode"] = "huggingface"
-    return parsed
+    try:
+        parsed = client.generate_json(system_prompt=prompt, user_payload=payload)
+        parsed.setdefault("missing_actions", [])
+        parsed.setdefault("improved_kpis", [])
+        parsed.setdefault("timeline_or_scope_changes", [])
+        parsed.setdefault("revised_action_plan_summary", "")
+        parsed["generation_mode"] = "huggingface"
+        return parsed
+    except Exception as exc:
+        return {
+            "missing_actions": [
+                "Define explicit action owners and accountable teams.",
+                "Add implementation milestones tied to strategy outcomes.",
+            ],
+            "improved_kpis": [
+                "Set measurable KPI targets with baseline and target values.",
+                "Track monthly progress against strategy-aligned KPIs.",
+            ],
+            "timeline_or_scope_changes": [
+                "Break broad actions into phased deliverables with dates.",
+                "Prioritize high-impact actions that directly support the strategy.",
+            ],
+            "revised_action_plan_summary": (
+                f"Improve alignment for strategy '{strategy_text[:120]}' by clarifying ownership, "
+                "adding KPI targets, and sequencing milestones with measurable outcomes."
+            ),
+            "generation_mode": "fallback",
+            "generation_error": str(exc),
+        }
 
 
 def _suggestion_text_for_embedding(suggestions: dict[str, Any]) -> str:
